@@ -1,0 +1,12 @@
+{
+    "url": "https://www.linkedin.com/talent/home",
+    "username1": "yongseng1688@gmail.com",
+    "password1": "Minichoper0714",
+    "username": "wengyan.oo@ant-intl.com",
+    "password": "Yan888888.",
+    "headless": false,
+    "waitTime": 3000,
+    "scrollDelay": 1000,
+    "clickDelay": 500
+}
+

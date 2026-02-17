@@ -1,0 +1,19 @@
+{
+    "name": "linkedin-like-automation",
+    "version": "1.0.0",
+    "description": "RPA script to automate clicking React Like buttons",
+    "main": "index.js",
+    "scripts": {
+        "start": "node index.js"
+    },
+    "keywords": [
+        "rpa",
+        "automation",
+        "puppeteer"
+    ],
+    "author": "",
+    "license": "ISC",
+    "dependencies": {
+        "puppeteer": "^22.0.0"
+    }
+}
