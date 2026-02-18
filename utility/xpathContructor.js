@@ -19,6 +19,25 @@ export const sel = {
   tagByIdContains: (tag, part) => `//${tag}[contains(@id, ${xpathStr(part)})]`,
 
   /* ========================
+     CLASS SELECTORS
+  ======================== */
+
+  // Tag + exact class match
+  tagByClass: (tag, className) => `//${tag}[@class=${xpathStr(className)}]`,
+
+  // Tag + class contains
+  tagByClassContains: (tag, className) =>
+    `//${tag}[contains(@class, ${xpathStr(className)})]`,
+
+  // Tag + multiple classes (all must be present)
+  tagByClasses: (tag, ...classNames) =>
+    `//${tag}[${classNames.map((c) => `contains(@class, ${xpathStr(c)})`).join(" and ")}]`,
+
+  // Tag + class contains + text contains (very specific combo)
+  tagByClassAndText: (tag, className, text) =>
+    `//${tag}[contains(@class, ${xpathStr(className)}) and contains(normalize-space(.), ${xpathStr(text)})]`,
+
+  /* ========================
      TEXT SELECTORS
   ======================== */
 
@@ -28,7 +47,7 @@ export const sel = {
   textExact: (tag, text) => `//${tag}[normalize-space(.)=${xpathStr(text)}]`,
 
   button: (text) => `//button[contains(normalize-space(.), ${xpathStr(text)})]`,
-  
+
   // Button by exact type
   buttonType: (type) => `//button[@type=${xpathStr(type)}]`,
 

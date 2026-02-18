@@ -15,40 +15,18 @@ export const PageHelper = {
    * Wait for an XPath and return the first matching ElementHandle
    */
   async waitForXPathEl(page, xpath, opts = {}) {
-    const timeout = opts.timeout || 30000;
+    const timeout = opts.timeout || 5000;
+    const visible = opts.visible || false;
 
     try {
       // Use page.locator with XPath for newer Puppeteer versions
-      const locator = page.locator(`xpath/${xpath}`);
-      await locator.setTimeout(timeout);
-
-      // Wait for the element to be present
-      await locator.wait();
-
-      // Get the element handle
-      const handle = await locator.waitHandle();
+      const handle = await page.waitForSelector(`xpath/${xpath}`, {
+        timeout,
+        visible,
+      });
 
       if (!handle) {
         throw new Error(`XPath found no element: ${xpath}`);
-      }
-
-      // Optional visibility check
-      if (opts.visible) {
-        const isVisible = await page.evaluate((el) => {
-          const style = window.getComputedStyle(el);
-          const rect = el.getBoundingClientRect();
-          return (
-            style &&
-            style.visibility !== "hidden" &&
-            style.display !== "none" &&
-            rect.width > 0 &&
-            rect.height > 0
-          );
-        }, handle);
-
-        if (!isVisible) {
-          throw new Error(`Element found but not visible: ${xpath}`);
-        }
       }
 
       return handle;
@@ -63,67 +41,84 @@ export const PageHelper = {
    * Wait + click by XPath
    */
   async clickXPath(page, xpath, opts = {}) {
-    const el = await this.waitForXPathEl(page, xpath, opts);
-    await el.click();
-    await el.dispose();
+    try {
+      const el = await this.waitForXPathEl(page, xpath, opts);
+      await el.click();
+      await el.dispose();
+    } catch (error) {
+      throw new Error(
+        `Failed to click element with XPath: ${xpath}. Error: ${error.message}`,
+      );
+    }
   },
 
   /**
    * Wait + get textContent
    */
   async textXPath(page, xpath, opts = {}) {
-    const el = await this.waitForXPathEl(page, xpath, opts);
-    const text = await page.evaluate((node) => node.textContent || "", el);
-    await el.dispose();
-    return text.trim();
+    try {
+      const el = await this.waitForXPathEl(page, xpath, opts);
+      const text = await page.evaluate((node) => node.textContent || "", el);
+      await el.dispose();
+      return text.trim();
+    } catch (error) {
+      throw new Error(
+        `Failed to get text from element with XPath: ${xpath}. Error: ${error.message}`,
+      );
+    }
   },
 
   /**
-   * Return handle without disposing
+   * Get all matching elements by XPath (returns array of ElementHandles)
    */
-  async getXPathHandle(page, xpath, opts = {}) {
-    return this.waitForXPathEl(page, xpath, opts);
+  async getAllXPathEl(page, xpath, opts = {}) {
+    const timeout = opts.timeout || 3000;
+
+    try {
+      await page.waitForSelector(`xpath/${xpath}`, { timeout });
+      const handles = await page.$$(`xpath/${xpath}`);
+      return handles; // already an array
+    } catch (error) {
+      throw new Error(
+        `Failed to find elements with XPath: ${xpath}. Error: ${error.message}`,
+      );
+    }
   },
 
   async openBrowser(url) {
-    console.log("🚀 Starting browser automation...");
-    let browser, page;
+    try {
+      console.log("🚀 Starting browser automation...");
+      let browser, page;
 
-    // Launch browser with a separate Chrome profile for automation
-    browser = await puppeteer.launch({
-      headless: config.headless,
-      defaultViewport: null,
-      executablePath:
-        "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
-      userDataDir: path.join(__dirname, "chrome-data"),
-      args: ["--start-maximized", "--no-sandbox", "--disable-setuid-sandbox"],
-    });
+      // Launch browser with a separate Chrome profile for automation
+      browser = await puppeteer.launch({
+        headless: config.headless,
+        defaultViewport: null,
+        executablePath:
+          "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+        userDataDir: path.join(__dirname, "chrome-data"),
+        args: ["--start-maximized", "--no-sandbox", "--disable-setuid-sandbox"],
+      });
 
-    page = await browser.newPage();
+      page = await browser.newPage();
 
-    console.log(`📂 Navigating to: ${url}`);
-    await PageHelper.goto(page, url, {
-      waitUntil: "networkidle2",
-      timeout: 60000,
-    });
-
-    // await login(page);
-
-    // console.log(`⏳ Waiting for page content to load...`);
-    // Wait for search results to appear instead of fixed timeout
-    //   await page.waitForSelector('div[data-view-name="people-search-result"]', {
-    //     timeout: 30000
-    //   });
-
-    return { browser, page };
+      console.log(`📂 Navigating to: ${url}`);
+      await PageHelper.goto(page, url, {
+        waitUntil: "networkidle2",
+        timeout: 60000,
+      });
+      return { browser, page };
+    } catch (error) {
+      throw new Error(
+        `❌ Failed to open browser or navigate: ${error.message}`,
+      );
+    }
   },
 
   async goto(page, url, options = {}) {
-    console.log(`📂 Navigating to: ${url}`);
-
     try {
       await page.goto(url, options);
-      console.log(`✅ Navigation successful: ${url}`);
+      console.log(`\n✅ Navigation successful: ${url}\n`);
     } catch (error) {
       console.log(`❌ Navigation failed: ${url}`);
       throw error;
@@ -141,5 +136,95 @@ export const PageHelper = {
       console.log(`❌ Evaluation failed`);
       throw error;
     }
+  },
+
+  async type(page, selector, text, options = {}) {
+    console.log(`✍️  Typing into: ${selector}`);
+
+    try {
+      await page.type(selector, text, options);
+      console.log(`✅ Typed successfully into: ${selector}`);
+    } catch (error) {
+      console.log(`❌ Failed to type into: ${selector}`);
+      throw error;
+    }
+  },
+
+  async waitForNavigation(page, options = {}) {
+    console.log(`⏳ Waiting for navigation...`);
+
+    try {
+      await page.waitForNavigation(options);
+      console.log(`✅ Navigation completed`);
+    } catch (error) {
+      console.log(`❌ Navigation timeout or failed`);
+      throw error;
+    }
+  },
+
+  async autoScroll(page, options = {}) {
+    const duration = options.duration || 5000; // total scroll time (ms)
+    const interval = options.interval || 200; // delay between scrolls (ms)
+    const step = options.step || 300; // pixels per scroll
+    const scrollBackToTop = options.scrollBackToTop ?? true;
+
+    console.log(`📜 Auto-scrolling for ${duration}ms...`);
+
+    let elapsed = 0;
+
+    while (elapsed < duration) {
+      await page.evaluate((scrollStep) => {
+        window.scrollBy(0, scrollStep);
+      }, step);
+
+      await new Promise((resolve) => setTimeout(resolve, interval));
+      elapsed += interval;
+    }
+
+    if (scrollBackToTop) {
+      console.log("⬆️  Scrolling back to top...");
+      await page.evaluate(() => {
+        window.scrollTo(0, 0);
+      });
+
+      await new Promise((resolve) => setTimeout(resolve, 1000));
+    }
+  },
+
+
+  // browser related helpers
+  async alwaysStayInPage(browser, page) {
+    try {
+      browser.on("targetcreated", async (target) => {
+        const newPage = await target.page();
+        if (newPage && newPage !== page) {
+          console.log("🗑️  Closing popup/redirect tab...");
+          await newPage.close();
+        }
+      });
+    }
+      catch (error) {
+        throw new Error(`❌ Failed to set up alwaysStayInPage: ${error.message}`);
+      }
+  },
+
+  async acceptDialogs(page) {
+    page.on("dialog", async (dialog) => {
+      console.log(`💬 Dialog detected: ${dialog.message()}`);
+      try {
+        if (
+          dialog
+            .message()
+            .toLowerCase()
+            .includes("discard your message without sending.")
+        ) {
+          await dialog.accept();
+          console.log("✅ Dialog accepted");
+        }
+      } catch (error) {
+        console.log(`❌ Failed to accept dialog: ${error.message}`);
+        throw new Error(`❌ Failed to accept dialog: ${error.message}`);
+      }
+    });
   },
 };

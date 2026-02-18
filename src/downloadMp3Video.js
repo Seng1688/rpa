@@ -1,31 +1,29 @@
 import { setTimeout } from "node:timers/promises";
 import { PageHelper } from "../utility/pageHelper.js";
 import { sel } from "../utility/xpathContructor.js";
+import { Page } from "puppeteer";
 
 // Function: Download videos/audio from URLs
 export async function downloadMp3Video() {
-  try {
-    // List of video URLs to process
-    const videoLinks = [
-      "https://www.youtube.com/watch?v=KZGWfHdfWQs&list=RDKZGWfHdfWQs&start_radio=1",
-      "https://www.youtube.com/watch?v=kBIhqNT5gsE&list=RDEMGAWr7BflxQO2xSvmngzdbA&index=2",
-      "https://www.youtube.com/watch?v=SWD5s8iZgCY&list=RDEMGAWr7BflxQO2xSvmngzdbA&index=5",
-      // Add more URLs here
-    ];
-    console.log(`📋 Processing ${videoLinks.length} video(s)`);
+  // List of video URLs to process
+  let retryCount = 0;
+  let toDownloadVideoLinks = [
+    "https://www.youtube.com/watch?v=KZGWfHdfWQs&list=RDKZGWfHdfWQs&start_radio=1",
+    "https://www.youtube.com/watch?v=kBIhqNT5gsE&list=RDEMGAWr7BflxQO2xSvmngzdbA&index=2",
+    "https://www.youtube.com/watch?v=SWD5s8iZgCY&list=RDEMGAWr7BflxQO2xSvmngzdbA&index=5",
+    // Add more URLs here
+  ];
+  console.log(`📋 Processing ${toDownloadVideoLinks.length} video(s)`);
+  let _browser = null;
+  let _page = null;
 
+  const run = async (videoLinks) => {
     // Open URL and login
     const url = "https://v1.y2mate.nu/";
     const { browser, page } = await PageHelper.openBrowser(url);
-
-    // Set up listener to close any new tabs that open (popups/redirects)
-    browser.on("targetcreated", async (target) => {
-      const newPage = await target.page();
-      if (newPage && newPage !== page) {
-        console.log("🗑️  Closing popup/redirect tab...");
-        await newPage.close();
-      }
-    });
+    _browser = browser;
+    _page = page;
+    await PageHelper.alwaysStayInPage(browser, page);
 
     for (let i = 0; i < videoLinks.length; i++) {
       const videoUrl = videoLinks[i];
@@ -33,7 +31,7 @@ export async function downloadMp3Video() {
         `\n🔄 Processing video ${i + 1} of ${videoLinks.length}: ${videoUrl}`,
       );
 
-      await PageHelper.clickXPath(page, sel.id("video"), { timeout: 10000 });
+      await PageHelper.clickXPath(page, sel.id("video"), { timeout: 30000 });
 
       await PageHelper.evaluate(
         page,
@@ -48,26 +46,36 @@ export async function downloadMp3Video() {
         videoUrl,
       );
 
-      const formatButton = await PageHelper.getXPathHandle(
+      const formatButton = await PageHelper.waitForXPathEl(
         page,
         sel.id("format"),
         { timeout: 30000 },
       );
-      const formatButtonText = formatButton.textContent || "";
-
+      const formatButtonText = await PageHelper.textXPath(
+        page,
+        sel.id("format"),
+        { timeout: 30000 },
+      );
       if (!formatButtonText.includes(".mp3")) {
         console.log("⚠️  Format is not .mp3, clicking to change...");
         await formatButton.click();
-        await setTimeout(500);
+        await setTimeout(1000);
       }
       await PageHelper.clickXPath(page, sel.buttonType("submit"), {
-        timeout: 10000,
+        timeout: 30000,
       });
       await PageHelper.clickXPath(page, sel.button("Download"), {
-        timeout: 10000,
+        timeout: 30000,
       });
-      await PageHelper.clickXPath(page, sel.button("Next"), { timeout: 10000 });
 
+      // REMOVE the link from the list after processing to avoid re-processing in case of errors
+      toDownloadVideoLinks = toDownloadVideoLinks.filter(
+        (link) => link !== videoUrl,
+      );
+
+      await PageHelper.clickXPath(page, sel.button("Next"), {
+        timeout: 3000,
+      });
       console.log(`✅ Video ${i + 1} download triggered!`);
     }
 
@@ -75,12 +83,27 @@ export async function downloadMp3Video() {
     console.log("⏳ Keeping browser open for 5 seconds...");
 
     await setTimeout(5000);
+    if (_browser) {
+      await _browser.close();
+      _browser = null;
+      _page = null;
+      console.log("🔚 Browser closed.");
+    }
+  };
+  try {
+    await run(toDownloadVideoLinks);
   } catch (error) {
     console.error("❌ Error during video download automation:", error);
-  } finally {
-    if (browser) {
-      await browser.close();
+    if (_browser) {
+      await _browser.close();
+      _browser = null;
+      _page = null;
       console.log("🔚 Browser closed.");
+    }
+    if (retryCount < 3) {
+      retryCount++;
+      console.log(`🔄 Retrying... (${retryCount}/3)`);
+      await run(toDownloadVideoLinks);
     }
   }
 }
