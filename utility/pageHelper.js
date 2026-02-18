@@ -15,8 +15,8 @@ export const PageHelper = {
    * Wait for an XPath and return the first matching ElementHandle
    */
   async waitForXPathEl(page, xpath, opts = {}) {
-    const timeout = opts.timeout || 5000;
-    const visible = opts.visible || false;
+    const timeout = opts.timeout || 20000;
+    const visible = opts.visible || true;
 
     try {
       // Use page.locator with XPath for newer Puppeteer versions
@@ -41,8 +41,12 @@ export const PageHelper = {
    * Wait + click by XPath
    */
   async clickXPath(page, xpath, opts = {}) {
+    const timeout = opts.timeout || 20000;
+    const visible = opts.visible || true;
+
     try {
-      const el = await this.waitForXPathEl(page, xpath, opts);
+      const el = await this.waitForXPathEl(page, xpath, { timeout, visible });
+      await new Promise((resolve) => setTimeout(resolve, 1000));
       await el.click();
       await el.dispose();
     } catch (error) {
@@ -56,8 +60,10 @@ export const PageHelper = {
    * Wait + get textContent
    */
   async textXPath(page, xpath, opts = {}) {
+    const timeout = opts.timeout || 20000;
+    const visible = opts.visible || true;
     try {
-      const el = await this.waitForXPathEl(page, xpath, opts);
+      const el = await this.waitForXPathEl(page, xpath, { timeout, visible });
       const text = await page.evaluate((node) => node.textContent || "", el);
       await el.dispose();
       return text.trim();
@@ -72,8 +78,7 @@ export const PageHelper = {
    * Get all matching elements by XPath (returns array of ElementHandles)
    */
   async getAllXPathEl(page, xpath, opts = {}) {
-    const timeout = opts.timeout || 3000;
-
+    const timeout = opts.timeout || 20000;
     try {
       await page.waitForSelector(`xpath/${xpath}`, { timeout });
       const handles = await page.$$(`xpath/${xpath}`);
@@ -191,7 +196,6 @@ export const PageHelper = {
     }
   },
 
-
   // browser related helpers
   async alwaysStayInPage(browser, page) {
     try {
@@ -202,10 +206,9 @@ export const PageHelper = {
           await newPage.close();
         }
       });
+    } catch (error) {
+      throw new Error(`❌ Failed to set up alwaysStayInPage: ${error.message}`);
     }
-      catch (error) {
-        throw new Error(`❌ Failed to set up alwaysStayInPage: ${error.message}`);
-      }
   },
 
   async acceptDialogs(page) {

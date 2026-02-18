@@ -1,7 +1,6 @@
 import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
-import { PageHelper } from "./utility/pageHelper.js";
 import { downloadMp3Video } from "./src/downloadMp3Video.js";
 import { sendMessageToFirstPerson } from "./src/sendLinkedinMsg.js";
 
@@ -15,6 +14,6 @@ const config = JSON.parse(fs.readFileSync(configPath, "utf8"));
 // Main execution
 (async () => {
   console.log("🎬 Starting automation...");
-  // await sendMessageToFirstPerson();
-  await downloadMp3Video();
+  await sendMessageToFirstPerson();
+  // await downloadMp3Video();
 })();
