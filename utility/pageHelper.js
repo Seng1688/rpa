@@ -11,9 +11,7 @@ const configPath = path.join(__dirname, "..", "config.json");
 const config = JSON.parse(fs.readFileSync(configPath, "utf8"));
 
 export const PageHelper = {
-  /**
-   * Wait for an XPath and return the first matching ElementHandle
-   */
+  // click xPath in page
   async waitForXPathEl(page, xpath, opts = {}) {
     const timeout = opts.timeout || 20000;
     const visible = opts.visible || true;
@@ -37,9 +35,6 @@ export const PageHelper = {
     }
   },
 
-  /**
-   * Wait + click by XPath
-   */
   async clickXPath(page, xpath, opts = {}) {
     const timeout = opts.timeout || 20000;
     const visible = opts.visible || true;
@@ -56,6 +51,45 @@ export const PageHelper = {
     }
   },
 
+  // click xPath in a handle
+  async waitForXPathIn(handle, xpath, timeout = 1000) {
+    const start = Date.now();
+
+    while (Date.now() - start < timeout) {
+      const el = await handle.$(`xpath/${xpath}`);
+      if (el) return el;
+
+      await new Promise((r) => setTimeout(r, 200));
+    }
+
+    throw new Error("Timeout waiting for element inside handle 1");
+  },
+
+  async clickXPathIn(handle, xpath, timeout = 1000) {
+    try {
+      const el = await this.waitForXPathIn(handle, xpath, timeout);
+      await new Promise((resolve) => setTimeout(resolve, 1000));
+      await el.click();
+      await el.dispose();
+    } catch (error) {
+      throw new Error(
+        `Failed to click element with XPath inside handle: ${xpath}. Error: ${error.message}`,
+      );
+    }
+  },
+
+  async textXPathIn(handle, xpath, timeout = 1000) {
+    try {
+      const el = await this.waitForXPathIn(handle, xpath, timeout);
+      const text = await el.evaluate((el) => el.innerText.trim() || "", el);
+      await el.dispose();
+      return text.trim();
+    } catch (error) {
+      throw new Error(
+        `Failed to get text from element with XPath inside handle: ${xpath}. Error: ${error.message}`,
+      );
+    }
+  },
   /**
    * Wait + get textContent
    */
@@ -229,5 +263,14 @@ export const PageHelper = {
         throw new Error(`❌ Failed to accept dialog: ${error.message}`);
       }
     });
+  },
+  
+  async tryCatch(action, keyword) {
+    try {
+      return await action();
+    } catch (error) {
+      console.log(`no ${keyword} is found`);
+      return null;
+    }
   },
 };

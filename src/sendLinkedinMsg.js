@@ -1,6 +1,8 @@
 import { setTimeout } from "node:timers/promises";
 import { PageHelper } from "../utility/pageHelper.js";
 import Sel from "../utility/xpathContructor.js";
+import { fail } from "node:assert";
+import { Page } from "puppeteer";
 const sel = new Sel();
 const selChild = new Sel(true);
 
@@ -10,8 +12,11 @@ let config = {
 };
 const SHORT_TIME_OUT = 3000; // 3 seconds for quick waits
 const LONG_TIME_OUT = 20000; // 20 seconds for longer waits
-const CLICK_TIMEOUT = 1000; // 1 second for click timeouts
-
+const SENSITIVE_KEYWORDS = ["ant", "Audit and Assurance at Deloitte"];
+let successSend = [];
+let skipSend = [];
+let _browser = null;
+let _page = null;
 async function login(page) {
   try {
     console.log("🔐 Checking if login is required...");
@@ -55,133 +60,191 @@ async function login(page) {
 }
 // Function: Send message to first person in search results
 export async function sendMessageToFirstPerson(openBrowser) {
-  let browser;
   try {
     // Open URL and login
     const url =
       "https://www.linkedin.com/talent/search?searchContextId=87996147-4e3c-484f-b689-32f1acf06401&searchHistoryId=20706283793&searchRequestId=569febd5-9b10-4421-83c4-75226a2f3137&start=0&uiOrigin=PAGINATION";
     const { browser, page } = await PageHelper.openBrowser(url);
+    _browser = browser;
+    _page = page;
+
     await PageHelper.acceptDialogs(page);
-    await login(page);
+    // await login(page);
 
     console.log("⏳ Waiting for contract list...");
-    let hasContractList = false;
-    try {
-      hasContractList = await PageHelper.clickXPath(
-        page,
-        sel.attr(
-          "button",
-          "data-live-test-contract-select",
-          "AntFin - Recruiter",
+    await PageHelper.tryCatch(
+      () =>
+        PageHelper.clickXPath(
+          page,
+          sel.attr(
+            "button",
+            "data-live-test-contract-select",
+            "AntFin - Recruiter",
+          ),
+          { timeout: SHORT_TIME_OUT },
         ),
-        { timeout: SHORT_TIME_OUT },
+      "contract list",
+    );
+
+    const run = async () => {
+      console.log("⏳ Waiting for simple-form...");
+      await PageHelper.waitForXPathEl(
+        page,
+        sel.tagByClass("form", "simple-form"),
       );
-    } catch (error) {
-      console.log("no contract list is found");
-    }
+      // await PageHelper.autoScroll(page);
 
-    console.log("⏳ Waiting for simple-form...");
-    await PageHelper.waitForXPathEl(
-      page,
-      sel.tagByClass("form", "simple-form"),
-    );
-    // await PageHelper.autoScroll(page);
+      console.log(
+        "🔍 Counting article elements with data-test-row attribute...",
+      );
+      // Get ALL card elements
+      let articles = await PageHelper.getAllXPathEl(
+        page,
+        sel.attr("article", "data-test-row", ""),
+      );
 
-    // Get initial count of article elements with specific classes
-    console.log("🔍 Counting article elements with data-test-row attribute...");
+      console.log(`✅ Found ${articles.length} article(s)`);
 
-    let articles = await PageHelper.getAllXPathEl(
-      page,
-      sel.attr("article", "data-test-row", ""),
-    );
-
-    console.log(`✅ Found ${articles.length} article(s)`);
-
-    // enhancement: select all select all button once and click them to expand all articles
-
-    for (let i = 0; i < articles.length; i++) {
-      console.log(`\n📄 Processing article ${i + 1} of ${articles.length}...`);
-      try {
-        const article = articles[i];
-
-        // Check if any history-group contains a single word starting with 'ant'
-        const hasSensitiveWords = await article.evaluate((el) => {
-          const sensitiveList = ["ant", "audit senior at deloitte china"];
-          const text = el.innerText.trim().toLowerCase();
-          return sensitiveList.some((word) => {
-            const lowerWord = word.toLowerCase();
-
-            // If word contains only English letters and spaces → use word boundary
-            if (/^[a-z\s]+$/.test(lowerWord)) {
-              return new RegExp(`\\b${lowerWord}\\b`, "i").test(text);
-            }
-
-            // Otherwise (Chinese / mixed) → use includes
-            return text.includes(lowerWord);
-          });
-        });
-
-        if (hasSensitiveWords) {
-          console.log(
-            "✅ Found sensitive keyword, skipping to next article...",
-          );
-          continue;
-        }
+      for (let i = 0; i < articles.length; i++) {
         console.log(
-          "⚠️  No sensitive keyword found, preparing to send message...",
+          `\n📄 Processing article ${i + 1} of ${articles.length}...`,
         );
-        // Target the message button
-        console.log("🔍 Looking for message button...");
-        const messageButton = await article.$(
-          'button[data-test-component="message-icon-btn"]',
-        );
+        try {
+          const article = articles[i];
+          const username = await PageHelper.textXPathIn(
+            article,
+            selChild.attr("a", "data-test-link-to-profile-link", "true"),
+          );
 
-        if (!messageButton) {
-          console.log("⚠️  Message button not found in this article.");
-          continue;
+          // Click Show All
+          await PageHelper.tryCatch(
+            () =>
+              PageHelper.clickXPathIn(
+                article,
+                selChild.attr("button", "data-test-expandable-list-button", ""),
+              ),
+            "Show All button",
+          );
+
+          // Get Experience block
+          const experienceBlock = await article.evaluateHandle((el) => {
+            return Array.from(
+              el.querySelectorAll("ol.history-group__list-items"),
+            );
+          });
+          // Convert JSHandle to array of ElementHandles
+          const properties = await experienceBlock.getProperties();
+          const experienceHandles = [];
+          for (const property of properties.values()) {
+            const handle = property.asElement();
+            if (handle) experienceHandles.push(handle);
+          }
+
+          // Check Sensitive Words
+          const hasSensitiveWords = await experienceHandles[0].evaluate(
+            (el, keywords) => {
+              const text = el.innerText.trim().toLowerCase();
+              return keywords.some((word) => {
+                const lowerWord = word.toLowerCase();
+                if (/^[a-z\\s]+$/.test(lowerWord)) {
+                  return new RegExp(`\\b${lowerWord}\\b`, "i").test(text);
+                }
+                return text.includes(lowerWord);
+              });
+            },
+            SENSITIVE_KEYWORDS,
+          );
+
+          if (hasSensitiveWords) {
+            skipSend.push(username);
+            console.log(
+              "✅ Found sensitive keyword, skipping to next article...",
+            );
+            continue;
+          }
+          console.log(
+            "⚠️  No sensitive keyword found, preparing to send message...",
+          );
+
+          // Message Button
+          console.log("🔍 Looking for message button...");
+          const messageButton = await article.$(
+            'button[data-test-component="message-icon-btn"]',
+          );
+
+          if (!messageButton) {
+            console.log("⚠️  Message button not found in this article.");
+            continue;
+          }
+          await setTimeout(SHORT_TIME_OUT);
+
+          console.log("🖱️  Clicking message button...");
+          await messageButton.click();
+
+          // Wait Side Panel
+          console.log("⏳ Waiting for side panel to load...");
+          await PageHelper.waitForXPathEl(
+            page,
+            sel.tagByClass("div", "header-actions"),
+          );
+
+          // Dismiss button
+          console.log("🔍 Looking for dismiss button...");
+          await PageHelper.clickXPath(
+            page,
+            sel.attr("button", "aria-label", "Dismiss composer"),
+          );
+          successSend.push(username);
+          console.log("✅ Article processed successfully!");
+        } catch (error) {
+          console.error(`❌ Error processing article ${i + 1}:`, error.message);
+          throw error;
         }
-        await setTimeout(SHORT_TIME_OUT);
-
-        // Click the message button
-        console.log("🖱️  Clicking message button...");
-        await messageButton.click();
-
-        // Wait for the side panel to appear
-        console.log("⏳ Waiting for side panel to load...");
-        await PageHelper.waitForXPathEl(
-          page,
-          sel.tagByClass("div", "header-actions"),
-        );
-
-        // Find and click the dismiss button
-        console.log("🔍 Looking for dismiss button...");
-        await PageHelper.clickXPath(
-          page,
-          sel.attr("button", "aria-label", "Dismiss composer"),
-        );
-
-        console.log("✅ Article processed successfully!");
-      } catch (error) {
-        console.error(`❌ Error processing article ${i + 1}:`, error.message);
-        continue;
       }
-    }
 
+      // Click next Button
+      const nextButton = await PageHelper.tryCatch(
+        () =>
+          PageHelper.waitForXPathEl(
+            page,
+            sel.attr("a", "data-live-test-pagination-next", ""),
+          ),
+        "Next button",
+      );
+      if (nextButton) {
+        console.log("🖱️  Clicking next button...");
+        await setTimeout(SHORT_TIME_OUT);
+        // scroll to next button
+        await nextButton.click();
+        console.log("⏳ Waiting for next page to load...");
+        await PageHelper.waitForNavigation(page, {
+          waitUntil: "networkidle2",
+          timeout: LONG_TIME_OUT,
+        });
+        // wait for navigation to complete
+        console.log("⏳ Running next page...");
+
+        await run();
+      } else {
+        console.log("✅ No next button found, reached end of results.");
+      }
+    };
+    await run();
+  } catch (error) {
+    console.error("❌ Error during message automation:", error);
+  } finally {
     console.log("\n✨ All articles processed!");
 
     // Keep browser open
     console.log("⏳ Keeping browser open...");
     await setTimeout(SHORT_TIME_OUT);
-    if (browser) {
-      await browser.close();
+    if (_browser) {
+      await _browser.close();
       console.log("🔚 Browser closed.");
     }
-  } catch (error) {
-    console.error("❌ Error during message automation:", error);
-  } finally {
-    if (browser) {
-      await browser.close();
-      console.log("🔚 Browser closed.");
-    }
+    console.log("Sucessfully sent list:");
+    console.log(successSend);
+    console.log("Skipped to send list:");
+    console.log(skipSend);
   }
 }
